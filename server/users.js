@@ -77,6 +77,10 @@ export function getAccountByUsername(username) {
   return db.prepare('SELECT * FROM accounts WHERE username = ?').get(username) ?? null;
 }
 
+export function getAccountByUserId(userId) {
+  return db.prepare('SELECT * FROM accounts WHERE user_id = ?').get(userId) ?? null;
+}
+
 export function verifyPasswordByUsername(username, password) {
   const account = getAccountByUsername(username);
   if (account && checkPassword(account.password_hash, password)) return account;

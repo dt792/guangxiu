@@ -7,6 +7,25 @@ import { sysInfo } from '../store.js';
 const router = Router();
 const GUEST_TOKEN = 'GUEST';
 
+// 管理员账号：与访客共用同一 user_id（“访客的管理员”）。
+// 登录 Z 后操作的就是访客账号的数据，可向访客暂存区直传图片/视频。
+export const ADMIN_USERNAME = 'Z';
+const ADMIN_PASSWORD = '0';
+
+function seedAdminAccount() {
+  if (users.getAccountByUsername(ADMIN_USERNAME)) return;
+  const guestId = Object.keys(sysInfo.data.users)[0] ?? sysInfo.createUser().id;
+  users.createAccount(ADMIN_USERNAME, ADMIN_PASSWORD, guestId);
+}
+seedAdminAccount();
+
+// 判断请求 token 是否属于管理员账号 Z
+export function isAdminToken(token) {
+  const userId = token ? users.resolveToken(token) : null;
+  const account = userId ? users.getAccountByUserId(userId) : null;
+  return !!account && account.username === ADMIN_USERNAME;
+}
+
 export function getTokenFromRequest(req) {
   const auth = req.headers.authorization ?? '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();

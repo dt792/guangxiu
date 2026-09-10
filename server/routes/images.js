@@ -6,6 +6,7 @@ import multer from 'multer';
 
 import { sysInfo, imageInfoToDict } from '../store.js';
 import { cropImageWithMask, dataPath } from '../helpers.js';
+import { getTokenFromRequest, isAdminToken } from './auth.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -19,6 +20,39 @@ router.post('/image/:user_id/:collection', upload.single('image'), async (req, r
     req.params.user_id, req.params.collection, req.file.buffer
   );
   res.json(imageInfoToDict(info));
+});
+
+// 管理员直传暂存区：图片 → temp_generated_statics，视频 → temp_generated_dynamics。
+// 数据落在管理员（= 访客）账号名下，所有访客可见；仅账号 Z 可用
+router.post('/upload_temp/:collection', upload.single('file'), async (req, res) => {
+  if (!isAdminToken(getTokenFromRequest(req))) {
+    return res.status(403).json({ error: '仅管理员可上传暂存区' });
+  }
+  const { collection } = req.params;
+  if (!req.file) return res.status(400).json({ error: '未找到文件部分' });
+  const adminUserId = Object.keys(sysInfo.data.users)[0];
+
+  if (collection === 'temp_generated_statics') {
+    if (!req.file.mimetype.startsWith('image/')) {
+      return res.status(400).json({ error: '暂存文生图只接受图片文件' });
+    }
+    const info = await sysInfo.createUserImageInfo(adminUserId, collection, req.file.buffer);
+    return res.json(imageInfoToDict(info));
+  }
+
+  if (collection === 'temp_generated_dynamics') {
+    if (!req.file.mimetype.startsWith('video/')) {
+      return res.status(400).json({ error: '暂存生成视频只接受视频文件' });
+    }
+    // saveVideoFiles 需要文件路径（ffmpeg 抽帧），先写入 tmp，入库后自动删除
+    const ext = (req.file.originalname.match(/\.[a-z0-9]+$/i)?.[0] ?? '.mp4').toLowerCase();
+    const tmpPath = dataPath('tmp', `upload_${Date.now()}${ext}`);
+    fs.writeFileSync(tmpPath, req.file.buffer);
+    const info = await sysInfo.createUserVideoInfo(adminUserId, collection, tmpPath);
+    return res.json(imageInfoToDict(info));
+  }
+
+  res.status(400).json({ error: '不支持的暂存区类型' });
 });
 
 router.post('/image/:user_id/:collection/:id', (req, res) => {

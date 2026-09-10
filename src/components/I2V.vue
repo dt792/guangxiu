@@ -172,6 +172,32 @@ function clear_g() {
   api.delete(`/image_clear/${userStore.user_id}/temp_generated_dynamics`)
 }
 
+// 管理员（账号 Z）直传视频到暂存生成视频，访客可见
+const isAdmin = computed(() => userStore.isLoggedIn && userStore.username === 'Z')
+const adminFileInput = ref(null)
+async function adminUpload(e) {
+  const file = e.target.files[0]
+  e.target.value = null
+  if (!file) return
+  if (!file.type.match('video.*')) {
+    notyf.error('请选择视频文件')
+    return
+  }
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const res = await api.post('/upload_temp/temp_generated_dynamics', formData)
+    let item = res.data
+    item.selected = ref(false)
+    item.src = api.defaults.baseURL.replace(/\/$/, '') + '/video/src/' + item.id
+    item.thumbnail = await imageStore.get_thumbnail(item.id)
+    imageStore.temp_generated_dynamics.unshift(item)
+    notyf.success('已上传到暂存生成视频')
+  } catch (err) {
+    notyf.error(err.response?.data?.error || '上传失败')
+  }
+}
+
 // 评分
 const rating = ref(0)
 function make_rating(i) {
@@ -311,11 +337,13 @@ import { nextTick } from 'vue'
 
         <div class="panel-footer">
           <div class="action-buttons">
+            <button v-if="isAdmin" class="action-btn admin-upload" @click="adminFileInput.click()">上传视频</button>
             <button class="action-btn save" data-guest-action @click="to_user_g">保存</button>
             <button class="action-btn download" @click="download_g">下载</button>
             <button class="action-btn delete" @click="delete_g">删除</button>
             <button class="action-btn clear" @click="clear_g">全部清空</button>
           </div>
+          <input type="file" ref="adminFileInput" style="display:none" accept="video/*" @change="adminUpload" />
 
           <!-- 评分置底 -->
           <div class="rating-area">
@@ -733,6 +761,7 @@ import { nextTick } from 'vue'
 .action-btn.download { background: #8bb8ad; color: white; }
 .action-btn.delete { background: #e09a9a; color: white; }
 .action-btn.clear { background: #d6b578; color: white; }
+.action-btn.admin-upload { background: #9b8cc9; color: white; }
 
 /* 评分置底 */
 .rating-area {
