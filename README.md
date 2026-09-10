@@ -2,7 +2,7 @@
 
 Vue 3 + Vite 前端，Express 后端（REST + 静态托管 + AI worker WebSocket）。
 
-- 本地一键启动：`start_app.bat`
+- 本地启动：`build_app.bat`（装依赖 + 构建前端，改了前端代码才需要跑）→ `run_app.bat`（启动服务）
 - 服务器部署：见 [DEPLOY.md](DEPLOY.md)
 
 ## 开发

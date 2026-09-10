@@ -84,7 +84,7 @@
 		}
 	}
 	function load_user_detections() {
-		api.get("detections_by_user_id/" + userStore.user_id)
+		return api.get("detections_by_user_id/" + userStore.user_id)
 			.then(res => {
 				console.log("detections_by_id", res)
 				user_detections.length = 0;
@@ -117,7 +117,7 @@
 	load_user_detections()
 
 	function get_image_detections(id) {
-		api.get("detections/" + id)
+		return api.get("detections/" + id)
 			.then(res => {
 				image_detections.length = 0;
 				for (let cls of res.data) {
@@ -437,17 +437,20 @@
 	// 缩放或画布容器尺寸变化时重算 canvas 显示几何
 	watch(display_scale, () => updateCanvasGeometry());
 	// 显示自动分割：打勾时先对该图执行检测+分割，再刷新覆盖层显示
-	// 分割进度提示（右上角一个小白框：正在分割 loading / 分割完成 done 自动消失）
+	// 自动处理进度提示（右上角一个小白框：loading 转圈 / done 自动消失，文案按阶段变化）
 	const segToast = ref(false)  // 是否显示提示
-	const segDone = ref(false)   // true=完成, false=正在分割
+	const segDone = ref(false)   // true=完成, false=进行中
+	const segText = ref('')      // 当前阶段文案
 	let segToastTimer = null
-	function segLoading() {
+	function segLoading(text = '正在处理中，请耐心等待…') {
 		segDone.value = false
+		segText.value = text
 		segToast.value = true
 		clearTimeout(segToastTimer)
 	}
-	function segFinish() {
+	function segFinish(text = '分割完成') {
 		segDone.value = true
+		segText.value = text
 		segToast.value = true
 		clearTimeout(segToastTimer)
 		segToastTimer = setTimeout(() => { segToast.value = false }, 2500)
@@ -487,48 +490,44 @@
 			return false
 		}
 	}
-	// 执行一次“检测+分割”并展示进度：若该图已有分割缓存则直接显示结果，不再向后端发分割请求
+	// 执行一次“识别+分割”并分阶段提示：开始自动处理 → 识别完成 → 分割完成。
+	// 已有缓存的图只是刷新显示（如开关“显示自动分割”），静默处理，不弹任何提示
 	async function autoSegment(id) {
-		segLoading()
 		try {
 			const cached = await hasCachedDetections(id)
 			if (cached) {
-				// 已有缓存：直接刷新覆盖层即显示结果，仅提示“分割完成”
-				get_image_detections(id)
-				load_user_detections()
-				segFinish()
+				await get_image_detections(id)
+				await load_user_detections()
 				return
 			}
-			// 无缓存：真正触发后端检测与分割
+			// 无缓存：触发后端 YOLO 识别 + SAM2 分割，分阶段提示
+			segLoading('开始自动处理，正在识别…')
 			await api.get('detections/update/' + id)
-			get_image_detections(id)
-			load_user_detections()
-			segFinish()
+			await get_image_detections(id)
+			const count = image_detections.reduce((n, g) => n + (g.pos ? g.pos.length : 0), 0)
+			segLoading(`识别完成（检出 ${count} 个对象），正在加载分割…`)
+			await load_user_detections()
+			segFinish('分割完成')
 		} catch (e) {
 			console.error('目标检测与分割失败:', e)
 			segClear()
 		}
 	}
-	// 本地上传尚未拿到后端真实 ID 前，开启开关后等待后台上传，拿到 ID 时再补跑一次
-	let pendingSegmentation = false
-	// t_mask_s 被置 true：等待/直接执行分割并显示进度
+		// t_mask_s 被置 true：显示该图的分割结果（有缓存则即时展示，无缓存则触发一次分割）
 	watch(() => userStore.t_mask_s, (val) => {
 		if (!val) {
-			pendingSegmentation = false
 			segClear()
 			return
 		}
 		const id = userStore.t_selectedImageId
 		if (!id) return
 		if (!canvasHasImage.value) return   // 未真实开图、开关将自动弹回，不请求
-		segLoading()
 		if (!id.startsWith('uploaded_') || uploadBackendResolved) {
 			// 图库图片或后端已返回真实 ID：直接跑分割
 			autoSegment(id)
-		} else {
-			// 本地上传刚显示、后台还在同步真实 ID：保持“正在分割”，等就绪后补跑
-			pendingSegmentation = userStore.t_mask_s
 		}
+		// 本地上传刚显示、后台还在同步真实 ID：无需等待，
+		// 上传完成时会自动对该图跑 autoSegment（见 uploadImageToBackend）
 	})
 
 	//后端上传是否已返回真实图片ID（避免本地临时ID覆盖真实ID）
@@ -1372,19 +1371,14 @@ function calculateMaskBoundingBoxFromCanvas() {
 	    // 用后端真实ID替换本地临时ID，确保自动分割/检测使用正确的图
 	    userStore.t_selectedImageId = res.data.id
 	    uploadBackendResolved = true
-	    // 若用户在图片显示期间已打开“显示自动分割”而等待真实 ID，则此刻补跑分割流程
-	    if (pendingSegmentation && userStore.t_mask_s) {
-	      pendingSegmentation = false
-	      autoSegment(res.data.id)
-	    }
-	    try {
-	      await api.get('/detections/update/' + res.data.id)
-	    } catch (e) {}
+	    // 上传成功立即开始自动分割并显示进度提示（正在分割 → 分割完成），
+	    // 不再依赖“显示自动分割”开关；开关只控制掩膜覆盖层显隐，
+	    // 分割结果在服务端有缓存，之后打开开关可即时展示
+	    autoSegment(res.data.id)
 	    await imageStore.update_image_infos(userStore.user_id)
 	    return res.data.id
 	  } catch (e) {
 	    console.error('上传到服务器失败:', e)
-	    pendingSegmentation = false
 	    if (userStore.t_mask_s) {
 	      userStore.t_mask_s = false
 	      segClear()
@@ -1665,11 +1659,11 @@ function calculateMaskBoundingBoxFromCanvas() {
 <template>
 	<!-- 三栏布局 -->
 	<div class="three-column-layout">
-		<!-- 自动分割进度提示（右上角小白框：正在分割 loading / 分割完成 done，样式统一） -->
+		<!-- 自动处理进度提示（右上角小白框：阶段文案由 segText 驱动，done 自动消失） -->
 		<div v-if="segToast" class="seg-toast">
 			<img class="seg-toast-icon" :class="!segDone ? 'spin' : ''"
 				:src="segDone ? '/finish.svg' : '/loading.svg'" alt="" />
-			<span>{{ segDone ? '分割完成' : '正在分割中，请耐心等待返回结果…' }}</span>
+			<span>{{ segText }}</span>
 		</div>
 		<!--  左侧	-->
 		<div class="left-panel left-column">
