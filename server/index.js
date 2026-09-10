@@ -9,6 +9,7 @@ import express from 'express';
 import { WebSocketServer } from 'ws';
 
 import config from './config.js';
+import { log, logErr, short } from './logger.js';
 import { registerWorker, unregisterWorker, resolveTask, workerCount } from './workerManager.js';
 import authRouter from './routes/auth.js';
 import imagesRouter from './routes/images.js';
@@ -52,11 +53,14 @@ if (fs.existsSync(DIST_DIR)) {
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error('[http] error:', err);
+  logErr('http', `${req.method} ${req.originalUrl} → ${short(err.message ?? err)}`);
   res.status(500).json({ error: String(err.message ?? err) });
 });
 
 const server = http.createServer(app);
+// 云端 t2i/i2v 为长轮询请求（i2v 最长约 10 分钟），必须关闭 Node 默认 5 分钟
+// requestTimeout，否则连接被静默掐断，浏览器侧表现为“缺少 CORS 头”的跨域报错
+server.requestTimeout = 0;
 
 // ---------- AI worker WebSocket ----------
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
@@ -95,5 +99,5 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(config.PORT, config.HOST, () => {
-  console.log(`server listening on http://${config.HOST}:${config.PORT}`);
+  log('server', `listening on http://${config.HOST}:${config.PORT}`);
 });

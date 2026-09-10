@@ -1,9 +1,10 @@
-// Cloud AI generation routes: DeepSeek / qwen-vl / Volcengine (t2i + i2v).
-// Endpoints unchanged; t2i now uses the Volcengine cloud API instead of ComfyUI.
+// Cloud AI generation routes: 全部走阿里云百炼（LLM / qwen-vl / t2i / i2v），
+// 一个 DASHSCOPE_API_KEY 即可；端点保持不变。
 import { Router } from 'express';
 
 import * as cloud from '../cloud.js';
 import { sysInfo, imageInfoToDict } from '../store.js';
+import { log, short } from '../logger.js';
 
 const router = Router();
 
@@ -30,7 +31,7 @@ router.post('/t2i/:user_id/:id', async (req, res, next) => {
     const hint = '广绣（广东刺绣、粤绣）风格的刺绣艺术品，' + req.body.hint +
       '，丝线绣制，针脚细密整齐，缎面底布，丝光质感，色彩浓艳饱满，构图丰满，' +
       '立体感强，刺绣纹理清晰可见，画面充满质感，极具传统广绣艺术特色。';
-    console.log(hint);
+    log('api', `t2i user=${user_id} task=${id} hint="${short(hint, 60)}"`);
     // lora/cfg/steps belonged to the old ComfyUI workflow; kept for request compatibility
     const output = await cloud.dashscopeT2i(hint, req.body.width ?? 1024, req.body.height ?? 1024);
     sysInfo.data.tasks[id].state = '完成';
@@ -45,6 +46,7 @@ router.post('/t2i/:user_id/:id', async (req, res, next) => {
 router.get('/qwen_vl/:id/:style', async (req, res, next) => {
   try {
     const info = sysInfo.data.image_infos[req.params.id];
+    if (!info) return res.status(404).json({ error: 'image not found' });
     res.json(await cloud.qwenVl(info.src, req.params.style));
   } catch (e) {
     next(e);
@@ -55,6 +57,7 @@ router.get('/i2v/:user_id/:id/:hint', async (req, res, next) => {
   try {
     const { user_id, id, hint } = req.params;
     const info = sysInfo.data.image_infos[id];
+    if (!info) return res.status(404).json({ error: 'image not found' });
     // wan2.7 accepts base64 first frame, no public url required
     const videoPath = await cloud.dashscopeI2v(info.src, hint);
     const created = await sysInfo.createUserVideoInfo(user_id, 'temp_generated_dynamics', videoPath);

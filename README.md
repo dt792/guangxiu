@@ -1,33 +1,15 @@
-<<<<<<< HEAD
-# guangxiu
-=======
-# webapp
+# guangxiu（广绣 AI 教学平台 webapp）
 
-This template should help get you started developing with Vue 3 in Vite.
+Vue 3 + Vite 前端，Express 后端（REST + 静态托管 + AI worker WebSocket）。
 
-## Recommended IDE Setup
+- 本地一键启动：`start_app.bat`
+- 服务器部署：见 [DEPLOY.md](DEPLOY.md)
 
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+## 开发
 
 ```sh
 npm install
+npm run dev      # 前端热更新（注意 dev 端口与后端默认都是 3005，需错开）
+npm run server   # 仅起后端（需先 npm run build 生成 dist）
+npm start        # build + 起后端
 ```
-
-### Compile and Hot-Reload for Development
-
-```sh
-npm run dev
-```
-
-### Compile and Minify for Production
-
-```sh
-npm run build
-```
->>>>>>> c899e74 (初始化提交Vue项目)

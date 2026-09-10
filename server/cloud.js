@@ -1,10 +1,11 @@
-// Cloud AI services: DeepSeek / Aliyun DashScope (qwen-vl, t2i, i2v).
+// Cloud AI services: 统一走阿里云百炼 DashScope（chat / qwen-vl / t2i / i2v）。
 // Keys come from environment variables (see config.js).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
 import config from './config.js';
 import { optimizeImageForApi } from './helpers.js';
+import { log, elapsed } from './logger.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -15,9 +16,12 @@ async function downloadTo(url, path) {
   return path;
 }
 
-// ---------- OpenAI-compatible chat (DeepSeek / DashScope qwen-vl) ----------
+// ---------- OpenAI-compatible chat（百炼兼容模式：LLM / qwen-vl）----------
 
 async function chatCompletion(baseUrl, apiKey, model, messages) {
+  if (!apiKey) throw new Error(`API key 未配置（请在 .env 中填写后重启服务），模型: ${model}`);
+  const t0 = Date.now();
+  log('cloud', `chat → ${model}`);
   const resp = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -28,11 +32,17 @@ async function chatCompletion(baseUrl, apiKey, model, messages) {
   });
   if (!resp.ok) throw new Error(`chat api ${resp.status}: ${await resp.text()}`);
   const data = await resp.json();
-  return data.choices[0].message.content;
+  const content = data.choices?.[0]?.message?.content;
+  if (content == null) throw new Error(`chat api 返回结构异常: ${JSON.stringify(data)}`);
+  log('cloud', `chat ← ${model} ok ${elapsed(t0)}`);
+  return content;
 }
 
+// 古诗词→提示词，用百炼上的 LLM（默认 deepseek-v3，也可换 qwen-plus 等）
 export function deepseek(messages) {
-  return chatCompletion(config.DEEPSEEK_BASE_URL, config.DEEPSEEK_API_KEY, 'deepseek-chat', messages);
+  return chatCompletion(
+    config.DASHSCOPE_BASE_URL, config.DASHSCOPE_API_KEY, config.DASHSCOPE_LLM_MODEL, messages
+  );
 }
 
 export async function qwenVl(imagePath, style) {
@@ -53,7 +63,12 @@ export async function qwenVl(imagePath, style) {
   const content = await chatCompletion(
     config.DASHSCOPE_BASE_URL, config.DASHSCOPE_API_KEY, config.DASHSCOPE_VL_MODEL, messages
   );
-  let data = JSON.parse(content.replace('```json', '').replace('```', ''));
+  let data;
+  try {
+    data = JSON.parse(content.replace('```json', '').replace('```', ''));
+  } catch {
+    throw new Error(`qwen-vl 返回内容不是合法 JSON: ${String(content).slice(0, 200)}`);
+  }
   // 不同 VL 模型返回结构不一：数组 / {prompt_suggestions:[...]} / 其它包裹形式，
   // 统一归一化为 [{prompt: ...}, ...]
   if (!Array.isArray(data)) {
@@ -68,6 +83,10 @@ export async function qwenVl(imagePath, style) {
 const DS_BASE = 'https://dashscope.aliyuncs.com/api/v1';
 
 async function dsSubmit(path, payload) {
+  if (!config.DASHSCOPE_API_KEY) {
+    throw new Error('DASHSCOPE_API_KEY 未配置（请在 .env 中填写后重启服务）');
+  }
+  log('cloud', `submit → ${payload.model}`);
   const resp = await fetch(`${DS_BASE}${path}`, {
     method: 'POST',
     headers: {
@@ -82,20 +101,27 @@ async function dsSubmit(path, payload) {
   if (!resp.ok || !taskId) {
     throw new Error(`dashscope submit failed: ${JSON.stringify(data)}`);
   }
+  log('cloud', `submit ← ${payload.model} task=${taskId}`);
   return taskId;
 }
 
 async function dsPoll(taskId, { intervalMs = 3000, timeoutMs = 10 * 60 * 1000 } = {}) {
-  const deadline = Date.now() + timeoutMs;
+  const t0 = Date.now();
+  const deadline = t0 + timeoutMs;
   for (;;) {
     if (Date.now() > deadline) throw new Error('dashscope task timeout');
     await sleep(intervalMs);
     const resp = await fetch(`${DS_BASE}/tasks/${taskId}`, {
       headers: { Authorization: `Bearer ${config.DASHSCOPE_API_KEY}` },
     });
+    // 查询失败（如 401）必须直接抛出，否则会空转到超时
+    if (!resp.ok) throw new Error(`dashscope poll ${resp.status}: ${await resp.text()}`);
     const data = await resp.json();
     const output = data.output ?? {};
-    if (output.task_status === 'SUCCEEDED') return output;
+    if (output.task_status === 'SUCCEEDED') {
+      log('cloud', `poll ← task=${taskId} SUCCEEDED ${elapsed(t0)}`);
+      return output;
+    }
     if (output.task_status === 'FAILED' || output.task_status === 'CANCELED') {
       throw new Error(`dashscope task ${output.task_status}: ${JSON.stringify(data)}`);
     }
@@ -125,6 +151,12 @@ function snapSize(width, height) {
 // qwen-image-max only supports the sync multimodal-generation endpoint.
 // lora/steps are not supported by the cloud API, style comes from the prompt.
 export async function dashscopeT2i(hint, width = 1024, height = 1024) {
+  if (!config.DASHSCOPE_API_KEY) {
+    throw new Error('DASHSCOPE_API_KEY 未配置（请在 .env 中填写后重启服务）');
+  }
+  const size = snapSize(width, height);
+  const t0 = Date.now();
+  log('cloud', `t2i → ${config.DASHSCOPE_T2I_MODEL} size=${size}`);
   const resp = await fetch(`${DS_BASE}/services/aigc/multimodal-generation/generation`, {
     method: 'POST',
     headers: {
@@ -135,7 +167,7 @@ export async function dashscopeT2i(hint, width = 1024, height = 1024) {
       model: config.DASHSCOPE_T2I_MODEL,
       input: { messages: [{ role: 'user', content: [{ text: hint }] }] },
       parameters: {
-        size: snapSize(width, height),
+        size,
         negative_prompt: '模糊，水印，文字，印章，题词，变形，低质量',
         watermark: false,
       },
@@ -148,12 +180,15 @@ export async function dashscopeT2i(hint, width = 1024, height = 1024) {
   const contents = data.output?.choices?.[0]?.message?.content ?? [];
   const url = contents.find((c) => c.image)?.image;
   if (!url) throw new Error(`dashscope t2i no result: ${JSON.stringify(data)}`);
+  log('cloud', `t2i ← ok ${elapsed(t0)}`);
   return downloadTo(url, `tmp/${crypto.randomUUID()}.webp`);
 }
 
 // i2v: wan2.7 new protocol, first frame passed as base64 data uri
 // (no public url required, works locally too).
 export async function dashscopeI2v(imagePath, hint) {
+  const t0 = Date.now();
+  log('cloud', `i2v → ${config.DASHSCOPE_I2V_MODEL}`);
   const dataUri = await optimizeImageForApi(imagePath, {
     maxSizeKb: 4096, maxDimension: 1920, header: true,
   });
@@ -168,5 +203,6 @@ export async function dashscopeI2v(imagePath, hint) {
   const output = await dsPoll(taskId, { intervalMs: 15000 });
   const url = output.video_url ?? output.results?.[0]?.url;
   if (!url) throw new Error(`dashscope i2v no result: ${JSON.stringify(output)}`);
+  log('cloud', `i2v ← ok ${elapsed(t0)}`);
   return downloadTo(url, `tmp/${crypto.randomUUID()}.mp4`);
 }

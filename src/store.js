@@ -6,8 +6,8 @@ import axios from "axios";
 // 基础配置：API 地址通过环境变量 VITE_API_BASE_URL 配置（见 webapp/.env），
 // 未配置时默认同源（生产部署时前后端同端口）
 export const api = axios.create({
-	baseURL: 'http://127.0.0.1:5000/',
-    //baseURL: import.meta.env.VITE_API_BASE_URL || '/',
+	// baseURL: 'http://127.0.0.1:5000/',
+    baseURL: import.meta.env.VITE_API_BASE_URL || '/',
 });
 
 // 请求拦截：自动携带登录 token。

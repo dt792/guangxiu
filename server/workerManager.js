@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 
 import config from './config.js';
+import { log, logErr, elapsed, short } from './logger.js';
 
 export class WorkerUnavailableError extends Error {}
 export class WorkerTaskError extends Error {}
@@ -45,12 +46,15 @@ export function workerCount() {
 export function submitTask(action, params, timeout = config.WORKER_TASK_TIMEOUT) {
   const list = [...workers];
   if (list.length === 0) {
+    logErr('worker', `← ${action} failed: worker offline`);
     return Promise.reject(new WorkerUnavailableError('AI service not connected (worker offline)'));
   }
   const ws = list[(rr++) % list.length];
   const taskId = crypto.randomUUID().replaceAll('-', '');
+  const t0 = Date.now();
+  log('worker', `→ ${action} task=${taskId.slice(0, 8)}`);
 
-  return new Promise((resolve, reject) => {
+  const result = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(taskId);
       reject(new WorkerTaskError('AI task timeout'));
@@ -64,4 +68,9 @@ export function submitTask(action, params, timeout = config.WORKER_TASK_TIMEOUT)
       }
     });
   });
+  result.then(
+    () => log('worker', `← ${action} ok ${elapsed(t0)}`),
+    (e) => logErr('worker', `← ${action} failed: ${short(e.message ?? e)}`),
+  );
+  return result;
 }

@@ -19,7 +19,9 @@ router.get('/first_user_id', (req, res) => {
     const userId = users.resolveToken(token);
     if (userId) return res.json(userId);
   }
-  const guest = Object.keys(sysInfo.data.users)[0] ?? '';
+  // 全新部署（无任何用户）时自动创建访客账号，
+  // 否则返回空字符串会导致前端 user_id 为空、后续 CRUD 全部悬空
+  const guest = Object.keys(sysInfo.data.users)[0] ?? sysInfo.createUser().id;
   res.json(guest);
 });
 
