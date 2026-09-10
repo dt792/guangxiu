@@ -1,6 +1,5 @@
 import { fileURLToPath, URL } from 'node:url'
 
-import vueDevTools from 'vite-plugin-vue-devtools'
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
@@ -12,8 +11,11 @@ export default defineConfig({
     tailwindcss(),
     vue(),
     systemImageIndexPlugin(),
-    // vueDevTools(),
   ],
+  build: {
+    reportCompressedSize: false, // 跳过 gzip 体积统计，大资源多时能省不少时间
+    chunkSizeWarningLimit: 2000,
+  },
   server:{
     hmr: false,
     host: "127.0.0.1",

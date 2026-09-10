@@ -50,8 +50,9 @@ export async function generateSystemImageIndex() {
     .map((d) => d.name)
     .sort((a, b) => a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' }))
 
-  for (const name of files) {
-    await buildThumb(name)
+  const CONCURRENCY = 8
+  for (let i = 0; i < files.length; i += CONCURRENCY) {
+    await Promise.all(files.slice(i, i + CONCURRENCY).map(buildThumb))
   }
   writeFileSync(OUT, JSON.stringify(files), 'utf-8')
   return files
