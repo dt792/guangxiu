@@ -4,6 +4,7 @@ import { Router } from 'express';
 
 import * as cloud from '../cloud.js';
 import { sysInfo, imageInfoToDict } from '../store.js';
+import { dataPath } from '../helpers.js';
 import { log, short } from '../logger.js';
 
 const router = Router();
@@ -47,7 +48,7 @@ router.get('/qwen_vl/:id/:style', async (req, res, next) => {
   try {
     const info = sysInfo.data.image_infos[req.params.id];
     if (!info) return res.status(404).json({ error: 'image not found' });
-    res.json(await cloud.qwenVl(info.src, req.params.style));
+    res.json(await cloud.qwenVl(dataPath(info.src), req.params.style));
   } catch (e) {
     next(e);
   }
@@ -59,7 +60,7 @@ router.get('/i2v/:user_id/:id/:hint', async (req, res, next) => {
     const info = sysInfo.data.image_infos[id];
     if (!info) return res.status(404).json({ error: 'image not found' });
     // wan2.7 accepts base64 first frame, no public url required
-    const videoPath = await cloud.dashscopeI2v(info.src, hint);
+    const videoPath = await cloud.dashscopeI2v(dataPath(info.src), hint);
     const created = await sysInfo.createUserVideoInfo(user_id, 'temp_generated_dynamics', videoPath);
     res.json(imageInfoToDict(created));
   } catch (e) {

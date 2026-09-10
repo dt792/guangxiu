@@ -1,37 +1,71 @@
 // Image/file helpers: replaces the PIL/cv2 based utilities from the Python backend.
+// 所有本地数据统一存放在 server/data/ 下（见 config.js DATA_DIR，已加入 .gitignore）。
+// sys.json 中存储的 src/thumbnail 仍为相对 data/ 的路径（如 images/src/xxx.webp），
+// 读写文件时一律通过 dataPath() 解析成绝对路径。
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import sharp from 'sharp';
 import ffmpegPath from 'ffmpeg-static';
 
+import { DATA_DIR } from './config.js';
+
+const execFileAsync = promisify(execFile);
+
+export function dataPath(...segs) {
+  return path.join(DATA_DIR, ...segs);
+}
+
 export function ensureDirs() {
-  for (const d of ['tmp', 'images/src', 'images/thumbnail', 'images/boxes', 'images/segs', 'tmp_segment_map']) {
-    fs.mkdirSync(d, { recursive: true });
+  for (const d of ['tmp', 'images/src', 'images/thumbnail', 'images/boxes', 'images/segs', 'segment_maps']) {
+    fs.mkdirSync(dataPath(d), { recursive: true });
   }
 }
 
-// Save image buffer as webp src + thumbnail, returns relative paths.
+// 清理 tmp 目录里超过 maxAgeMs 的残留文件（云端下载的临时文件、视频抽帧等），
+// 服务启动时调用一次，避免异常退出留下的垃圾越积越多
+export function cleanTmpDir(maxAgeMs = 3600_000) {
+  const dir = dataPath('tmp');
+  if (!fs.existsSync(dir)) return;
+  const now = Date.now();
+  for (const name of fs.readdirSync(dir)) {
+    const p = path.join(dir, name);
+    try {
+      const st = fs.statSync(p);
+      if (st.isFile() && now - st.mtimeMs > maxAgeMs) fs.rmSync(p, { force: true });
+    } catch { /* 单个文件清理失败不影响启动 */ }
+  }
+}
+
+// 云端生成结果先下载到 data/tmp/，入库复制完成后删除该临时文件
+export function rmIfTempFile(p) {
+  if (typeof p !== 'string') return;
+  const abs = path.resolve(p);
+  if (abs.startsWith(dataPath('tmp') + path.sep)) fs.rmSync(abs, { force: true });
+}
+
+// Save image buffer as webp src + thumbnail, returns data/-relative paths.
 export async function saveImageFiles(id, input) {
   const src = `images/src/${id}.webp`;
   const thumbnail = `images/thumbnail/${id}.webp`;
   const img = sharp(input, { failOn: 'none' });
-  await img.clone().webp({ quality: 80 }).toFile(src);
+  await img.clone().webp({ quality: 80 }).toFile(dataPath(src));
   await img.clone().resize({
     width: 200, height: 200, fit: 'inside', withoutEnlargement: true,
-  }).webp({ quality: 100 }).toFile(thumbnail);
+  }).webp({ quality: 100 }).toFile(dataPath(thumbnail));
   return { src, thumbnail };
 }
 
-// Save video file + first-frame thumbnail (via bundled ffmpeg), returns relative paths.
+// Save video file + first-frame thumbnail (via bundled ffmpeg), returns data/-relative paths.
 export async function saveVideoFiles(id, videoPath) {
   const filename = path.basename(videoPath);
   const src = `images/src/${filename}`;
   const thumbnail = `images/thumbnail/${id}.webp`;
-  fs.copyFileSync(videoPath, src);
-  const framePath = `tmp/${id}_frame.png`;
-  execFileSync(ffmpegPath, ['-y', '-i', src, '-frames:v', '1', framePath], { stdio: 'pipe' });
-  await sharp(framePath).webp().toFile(thumbnail);
+  fs.copyFileSync(videoPath, dataPath(src));
+  const framePath = dataPath('tmp', `${id}_frame.png`);
+  await execFileAsync(ffmpegPath, ['-y', '-i', dataPath(src), '-frames:v', '1', framePath]);
+  await sharp(framePath).webp().toFile(dataPath(thumbnail));
   fs.rmSync(framePath, { force: true });
   return { src, thumbnail };
 }

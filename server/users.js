@@ -2,10 +2,11 @@
 // in-memory token store (port of flask_backend/UserManager.py).
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
-const DB_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'users.db');
+import { DATA_DIR } from './config.js';
+
+const DB_PATH = path.join(DATA_DIR, 'users.db');
 const TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
 
 const db = new DatabaseSync(DB_PATH);

@@ -247,6 +247,7 @@
 	function resetMaskPreview() {
 		mask_src.value = generateImageWithText(w, h, '按下鼠标左键\n拖动绘制掩膜\n右键取消掩膜', 7)
 		mask_class.value = ""
+		maskReady.value = false
 	}
 	// 统一的笔触初始化函数
 	function initializeBrush() {
@@ -641,6 +642,8 @@
 	} from '@/tools'
 	const mask_src = ref(generateImageWithText(w, h, '按下鼠标左键\n拖动绘制掩膜\n右键取消掩膜', 7))
 	const mask_class = ref("")
+	// 预览区当前是否为真实掩膜/分割结果（占位提示图时为 false），用于拦截无效的识别请求
+	const maskReady = ref(false)
 
 	let box = []
 // 	async function mask_action() {
@@ -704,6 +707,7 @@
 	        // 确保掩膜正确设置到预览区
 	        if (c_m && c_m[0]) {
 	            mask_src.value = c_m[0]
+	            maskReady.value = true
 	            // 关键修改：使用从画布计算的边界框，而不是裁剪函数的返回值
 	            box = originalBox || c_m[1]
 	            console.log('掩膜预览已更新', { box: box });
@@ -883,6 +887,15 @@
 	}
 
 	function classify() {
+		// 未打开图片或预览区还是占位提示图时，不发识别请求
+		if (!canvasHasImage.value) {
+			notyf.error('请先打开一张图片')
+			return
+		}
+		if (!maskReady.value) {
+			notyf.error('请先用鼠标涂抹掩膜，或从分割结果中选择')
+			return
+		}
 		mask_class.value = "识别中"
 		const payload = {
 			image_data: mask_src.value.split(',')[1], // 移除Base64前缀
@@ -899,7 +912,13 @@
 	async function segment_box() {
 	    try {
 	        console.log('开始目标分割，使用绘制的掩膜区域')
-	        
+
+	        // 未打开图片时不发分割请求
+	        if (!canvasHasImage.value) {
+	            notyf.error('请先打开一张图片')
+	            return
+	        }
+
 	        if (!ctx) {
 	            notyf.error('画布未初始化')
 	            return
@@ -967,13 +986,14 @@
 	        
 	        // 获取完整图像数据
 	        let src_data = await imageStore.get_full(item.id);
-	        let src_thumbnail = await imageStore.get_full(item.id);
-	        
+	        let src_thumbnail = src_data;
+
 	        item.src = src_data
 	        item.thumbnail = src_thumbnail
-	        
+
 	        // 分割结果在唯一预览区展示
 	        mask_src.value = src_data
+	        maskReady.value = true
 
 	        // 添加到暂存区
 	        const existingIndex = imageStore.temp_segmentations.findIndex(seg => seg.id === item.id)
@@ -1176,6 +1196,7 @@ function calculateMaskBoundingBoxFromCanvas() {
 		selected_segment.value = item
 		await imageStore.load_full(item)
 		mask_src.value = item.src
+		maskReady.value = true
 		item.selected = true
 	}
 
@@ -1229,6 +1250,7 @@ function calculateMaskBoundingBoxFromCanvas() {
 	        
 	        // 更新功能区预览(唯一预览区)
 	        mask_src.value = src_data
+	        maskReady.value = true
 	        
 	        // 关键修改：检查是否已存在，避免重复添加
 	        const existingIndex = imageStore.temp_segmentations.findIndex(seg => seg.id === item.id)
@@ -1584,7 +1606,11 @@ function calculateMaskBoundingBoxFromCanvas() {
 	    await resetToOriginalImage()
 	    console.log('已收起针法地图，恢复原始图片')
 	  } else {
-	    // 展开针法地图
+	    // 展开针法地图：未打开图片时不发请求
+	    if (!canvasHasImage.value) {
+	      notyf.error('请先打开一张图片')
+	      return
+	    }
 	    stitchMapExpanded.value = true
 	    stitchMapLoading.value = true
 	    stitchMapMessage.value = '正在检查针法地图...'

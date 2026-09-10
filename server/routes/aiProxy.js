@@ -1,12 +1,11 @@
 // AI inference routes: forwarded to the AI worker over WebSocket.
 // Endpoints stay identical for the frontend.
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { Router } from 'express';
 
 import { sysInfo } from '../store.js';
-import { cropBoxImage, b64ToFile, fileToB64 } from '../helpers.js';
+import { cropBoxImage, b64ToFile, fileToB64, dataPath } from '../helpers.js';
 import {
   submitTask, WorkerUnavailableError, WorkerTaskError,
 } from '../workerManager.js';
@@ -24,7 +23,7 @@ router.get('/detections/update/:id', async (req, res) => {
   const id = req.params.id;
   const info = sysInfo.data.image_infos[id];
   if (!info) return res.status(404).json({ error: 'image not found' });
-  const srcPath = path.resolve(info.src);
+  const srcPath = dataPath(info.src);
   let result;
   try {
     result = await submitTask('detect_update', { image_b64: fileToB64(srcPath) });
@@ -43,8 +42,8 @@ router.get('/detections/update/:id', async (req, res) => {
       d_id: dId, id, image_id: '', is_star: false, name: item.name,
       x1, y1, x2, y2, top: item.top, left: item.left,
     };
-    b64ToFile(item.mask_b64, `images/segs/${dId}.webp`);
-    await cropBoxImage(srcPath, { x1, y1, x2, y2 }, `images/boxes/${dId}.webp`);
+    b64ToFile(item.mask_b64, dataPath('images/segs', `${dId}.webp`));
+    await cropBoxImage(srcPath, { x1, y1, x2, y2 }, dataPath('images/boxes', `${dId}.webp`));
     sysInfo.data.detections.push(dInfo);
     i += 1;
   }
@@ -69,7 +68,7 @@ router.post('/segment/:user_id/:id/:bboxes', async (req, res) => {
   if (!info) return res.status(404).json({ error: 'image not found' });
   let result;
   try {
-    result = await submitTask('segment', { image_b64: fileToB64(info.src), bboxes });
+    result = await submitTask('segment', { image_b64: fileToB64(dataPath(info.src)), bboxes });
   } catch (e) {
     return workerError(res, e);
   }
@@ -88,7 +87,7 @@ router.post('/check_segment_map/:user_id/:d_id', async (req, res) => {
   const imageData = req.body?.image_data;
   if (!imageData) return res.status(400).json({ error: '无效的请求' });
 
-  const resultPath = path.join('tmp_segment_map', `${d_id}_result_map.webp`);
+  const resultPath = dataPath('segment_maps', `${d_id}_result_map.webp`);
   if (fs.existsSync(resultPath)) {
     return res.json({
       exists: true, image_url: `/get_segment_map/${d_id}`, message: '针法地图已存在',
@@ -114,7 +113,7 @@ router.post('/complete_analysis/:user_id/:id', async (req, res) => {
   const info = sysInfo.data.image_infos[id];
   if (!info) return res.status(404).json({ error: 'image not found' });
   try {
-    const result = await submitTask('complete_analysis', { image_b64: fileToB64(info.src) });
+    const result = await submitTask('complete_analysis', { image_b64: fileToB64(dataPath(info.src)) });
     res.json(result);
   } catch (e) {
     if (e instanceof WorkerUnavailableError || e instanceof WorkerTaskError) {

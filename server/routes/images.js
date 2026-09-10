@@ -1,12 +1,11 @@
 // Image/video resources & user data routes (endpoints unchanged).
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { Router } from 'express';
 import multer from 'multer';
 
 import { sysInfo, imageInfoToDict } from '../store.js';
-import { cropImageWithMask } from '../helpers.js';
+import { cropImageWithMask, dataPath } from '../helpers.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -24,7 +23,7 @@ router.post('/image/:user_id/:collection', upload.single('image'), async (req, r
 
 router.post('/image/:user_id/:collection/:id', (req, res) => {
   const { user_id, collection, id } = req.params;
-  const userInfo = sysInfo.data.users[user_id];
+  const userInfo = sysInfo.ensureUser(user_id);
   if (['generated_statics', 'generated_dynamics', 'segmentations'].includes(collection)) {
     userInfo[collection].push(id);
   }
@@ -60,7 +59,7 @@ router.get('/detections/star/:d_id', (req, res) => {
 
 router.get('/detections/box/:d_id', (req, res) => {
   const d = sysInfo.data.detections.find((x) => x.d_id === req.params.d_id);
-  if (d) return res.type('image/webp').sendFile(path.resolve(`images/boxes/${d.d_id}.webp`));
+  if (d) return res.type('image/webp').sendFile(dataPath('images/boxes', `${d.d_id}.webp`));
   res.send('None');
 });
 
@@ -74,21 +73,22 @@ router.get('/detections/:id', (req, res) => {
 
 router.get('/segmentations/:d_id', (req, res) => {
   const d = sysInfo.data.detections.find((x) => x.d_id === req.params.d_id);
-  if (d) return res.type('image/webp').sendFile(path.resolve(`images/segs/${d.d_id}.webp`));
+  if (d) return res.type('image/webp').sendFile(dataPath('images/segs', `${d.d_id}.webp`));
   res.send('None');
 });
 
 router.get('/seg_to_temp/:user_id/:d_id', async (req, res) => {
   const d = sysInfo.data.detections.find((x) => x.d_id === req.params.d_id);
+  if (!d) return res.status(404).json({ error: 'detection not found' });
   const src = sysInfo.data.image_infos[d.id].src;
-  const imgBuffer = await cropImageWithMask(src, `images/segs/${d.d_id}.webp`, d.left, d.top);
+  const imgBuffer = await cropImageWithMask(dataPath(src), dataPath('images/segs', `${d.d_id}.webp`), d.left, d.top);
   const info = await sysInfo.createUserImageInfo(req.params.user_id, 'temp_segmentations', imgBuffer);
   res.json(imageInfoToDict(info));
 });
 
 router.get('/get_segment_map/:d_id', (req, res) => {
-  const mapPath = path.resolve('tmp_segment_map', `${req.params.d_id}_result_map.webp`);
-  if (!fs.existsSync(path.resolve('tmp_segment_map'))) {
+  const mapPath = dataPath('segment_maps', `${req.params.d_id}_result_map.webp`);
+  if (!fs.existsSync(dataPath('segment_maps'))) {
     return res.status(404).json({ error: '图片目录不存在' });
   }
   if (fs.existsSync(mapPath)) return res.type('image/webp').sendFile(mapPath);
@@ -102,23 +102,32 @@ router.get('/user/:user_id', (req, res) => {
 });
 
 router.get('/image/src/:id', (req, res) => {
-  res.type('image/webp').sendFile(path.resolve(sysInfo.data.image_infos[req.params.id].src));
+  const info = sysInfo.data.image_infos[req.params.id];
+  if (!info) return res.status(404).json({ error: 'image not found' });
+  res.type('image/webp').sendFile(dataPath(info.src));
 });
 
 router.get('/video/src/:id', (req, res) => {
-  res.type('video/mp4').sendFile(path.resolve(sysInfo.data.image_infos[req.params.id].src));
+  const info = sysInfo.data.image_infos[req.params.id];
+  if (!info) return res.status(404).json({ error: 'video not found' });
+  res.type('video/mp4').sendFile(dataPath(info.src));
 });
 
 router.get('/image/thumbnail/:id', (req, res) => {
-  res.type('image/webp').sendFile(path.resolve(sysInfo.data.image_infos[req.params.id].thumbnail));
+  const info = sysInfo.data.image_infos[req.params.id];
+  if (!info) return res.status(404).json({ error: 'image not found' });
+  res.type('image/webp').sendFile(dataPath(info.thumbnail));
 });
 
 router.get('/image/:id', (req, res) => {
-  res.json(sysInfo.data.image_infos[req.params.id]);
+  const info = sysInfo.data.image_infos[req.params.id];
+  if (!info) return res.status(404).json({ error: 'image not found' });
+  res.json(info);
 });
 
 router.get('/task/:task_id', (req, res) => {
   const t = sysInfo.data.tasks[req.params.task_id];
+  if (!t) return res.status(404).json({ error: 'task not found' });
   res.json({ id: t.id, process: t.process, state: t.state, img_id: t.img_id });
 });
 

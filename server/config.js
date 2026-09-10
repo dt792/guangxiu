@@ -4,8 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 import dotenv from 'dotenv';
 
-// Data dirs (tmp/, images/, ...) are relative to this server/ directory.
+// Data dirs (tmp/, images/, ...) live under this server/ directory.
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
+// 所有本地数据（上传/生成的图片视频、数据库、临时文件）统一存放在 server/data/ 下，
+// 该目录已加入 .gitignore，不会上传 git
+export const DATA_DIR = path.join(SERVER_DIR, 'data');
 // .env 固定在项目根（server/ 上一级），显式指定路径，
 // 避免从其它目录启动 node 时读不到 .env 导致 API key 为空
 // quiet: 关掉 dotenv 自身的注入提示横幅，保持控制台干净
