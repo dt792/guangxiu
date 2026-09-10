@@ -1,6 +1,7 @@
 // User accounts: node:sqlite storage, werkzeug-compatible password hashes (scrypt/pbkdf2),
 // in-memory token store (port of flask_backend/UserManager.py).
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -9,6 +10,8 @@ import { DATA_DIR } from './config.js';
 const DB_PATH = path.join(DATA_DIR, 'users.db');
 const TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
 
+// data/ 目录被 gitignore，首次克隆后可能不存在，需先创建否则 SQLite 打不开数据库文件
+fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
 db.exec(`
   CREATE TABLE IF NOT EXISTS accounts (

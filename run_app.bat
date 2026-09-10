@@ -19,5 +19,7 @@ if not exist dist\index.html (
     exit /b 1
 )
 
-npm run server
+rem npm 是 .cmd 脚本，必须加 call，否则调用后不会返回，下面的 pause 永远不执行，
+rem 服务一旦报错退出窗口就直接关闭（闪退），看不到任何错误信息
+call npm run server
 pause
