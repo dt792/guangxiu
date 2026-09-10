@@ -41,6 +41,7 @@ router.get('/detections/update/:id', async (req, res) => {
     const dInfo = {
       d_id: dId, id, image_id: '', is_star: false, name: item.name,
       x1, y1, x2, y2, top: item.top, left: item.left,
+      confidence: item.confidence ?? null,
     };
     b64ToFile(item.mask_b64, dataPath('images/segs', `${dId}.webp`));
     await cropBoxImage(srcPath, { x1, y1, x2, y2 }, dataPath('images/boxes', `${dId}.webp`));
@@ -56,7 +57,7 @@ router.post('/classify', async (req, res) => {
   if (!imageData) return res.status(400).json({ error: '无效的请求' });
   try {
     const result = await submitTask('classify', { image_b64: imageData });
-    res.json(result.class_name);
+    res.json({ class_name: result.class_name, confidence: result.confidence ?? null });
   } catch (e) {
     workerError(res, e);
   }
@@ -82,28 +83,45 @@ router.post('/segment/:user_id/:id/:bboxes', async (req, res) => {
   });
 });
 
+// 正在创建中的针法地图任务：d_id -> Promise。
+// 同一 d_id 的重复请求不再提交新任务，而是一起等待首个任务完成。
+const segmentMapInflight = new Map();
+
 router.post('/check_segment_map/:user_id/:d_id', async (req, res) => {
   const { d_id } = req.params;
-  const imageData = req.body?.image_data;
-  if (!imageData) return res.status(400).json({ error: '无效的请求' });
-
   const resultPath = dataPath('segment_maps', `${d_id}_result_map.webp`);
+
+  // 1) 缓存已存在：直接用，不再走 AI worker
   if (fs.existsSync(resultPath)) {
     return res.json({
-      exists: true, image_url: `/get_segment_map/${d_id}`, message: '针法地图已存在',
+      exists: true, image_url: `/get_segment_map/${d_id}`, message: '针法地图已存在（缓存）',
     });
   }
-  let result;
+
+  // 2) 正在创建：复用进行中的任务，让后来的请求等待它完成
+  let task = segmentMapInflight.get(d_id);
+  const reused = !!task;
+  if (!task) {
+    const imageData = req.body?.image_data;
+    if (!imageData) return res.status(400).json({ error: '无效的请求' });
+    task = (async () => {
+      const result = await submitTask('segment_map', { image_b64: imageData });
+      b64ToFile(result.map_b64, resultPath);
+    })();
+    segmentMapInflight.set(d_id, task);
+    // 无论成败，结束后都移除登记；失败时让所有等待者收到同一个错误
+    task.finally(() => segmentMapInflight.delete(d_id)).catch(() => {});
+  }
+
   try {
-    result = await submitTask('segment_map', { image_b64: imageData });
+    await task;
   } catch (e) {
     return workerError(res, e);
   }
-  b64ToFile(result.map_b64, resultPath);
   res.json({
     exists: false,
     image_url: `/get_segment_map/${d_id}`,
-    message: '针法地图生成成功',
+    message: reused ? '针法地图生成成功（等待了进行中的任务）' : '针法地图生成成功',
     generated_path: resultPath,
   });
 });

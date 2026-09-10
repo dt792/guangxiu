@@ -25,7 +25,8 @@ router.post('/image/:user_id/:collection/:id', (req, res) => {
   const { user_id, collection, id } = req.params;
   const userInfo = sysInfo.ensureUser(user_id);
   if (['generated_statics', 'generated_dynamics', 'segmentations'].includes(collection)) {
-    userInfo[collection].push(id);
+    // 防重复入册：重复保存同一 id 不会在图库里产生重复项
+    if (!userInfo[collection].includes(id)) userInfo[collection].push(id);
   }
   sysInfo.save();
   res.json(200);

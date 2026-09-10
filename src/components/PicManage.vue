@@ -107,8 +107,14 @@ async function delete_img(item, cate) {
   }
 }
 
-// 下载图片
+// 下载图片/视频
 async function download_img(item) {
+  if (activeCategory.value === 'generated_dynamics') {
+    // 视频走 /video/src/ 地址（图片的 /image/src/ 对视频不适用）
+    const baseURL = api.defaults.baseURL.replace(/\/$/, '')
+    download_image(`${baseURL}/video/src/${item.id}`, item.name)
+    return
+  }
   await imageStore.load_full(item)
   download_image(item.src, item.name)
 }
@@ -130,13 +136,17 @@ async function on_show_modal(item) {
   }]);
 }
 
-// 视频弹窗
+// 视频弹窗：直接把流式地址交给播放器，点击即播；
+// 旧做法先整段下载成 Blob 再播放，大视频要等很久。
+// 注意 Fancybox 5 的 HTML5 视频类型是 'html5video'（'video' 不是有效类型，
+// 会只弹遮罩不渲染内容）；地址无 .mp4 后缀，需显式给 videoFormat
 async function on_show_video_modal(item) {
-  let d = await imageStore.get_video_full(item.id)
+  const baseURL = api.defaults.baseURL.replace(/\/$/, '')
   try {
     Fancybox.show([{
-      src: d,
-      type: 'video',
+      src: `${baseURL}/video/src/${item.id}`,
+      type: 'html5video',
+      videoFormat: 'video/mp4',
     }]);
   } catch (e) {
     console.log(e)

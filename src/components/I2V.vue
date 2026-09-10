@@ -139,9 +139,21 @@ async function selected_g_changed(item) {
   }
 }
 
-function to_user_g() {
-  api.post(`/image/${userStore.user_id}/generated_dynamics/${selected_g.value.id}`)
-  notyf.success('已成功保存！');
+async function to_user_g() {
+  if (!selected_g.value) {
+    notyf.error('请先从暂存区选择要保存的视频')
+    return
+  }
+  const item = selected_g.value
+  await api.post(`/image/${userStore.user_id}/generated_dynamics/${item.id}`)
+  // 保存到图库后移出暂存区（本地列表 + 服务端同步）
+  const index = imageStore.temp_generated_dynamics.indexOf(item)
+  if (index > -1) imageStore.temp_generated_dynamics.splice(index, 1)
+  api.delete(`/image/${userStore.user_id}/temp_generated_dynamics/${item.id}`)
+  if (!imageStore.generated_dynamics.some(x => x.id === item.id)) {
+    imageStore.generated_dynamics.unshift(item)
+  }
+  notyf.success('已保存到图库并移出暂存区！');
 }
 function download_g() {
   download_image(video_src.value, "download")
@@ -154,6 +166,8 @@ function delete_g() {
   api.delete(`/image/${userStore.user_id}/temp_generated_dynamics/${selected_g.value.id}`)
 }
 function clear_g() {
+  // 暂存区不会自动清空，手动清空前二次确认防误触
+  if (!window.confirm(`确定清空全部暂存生成视频吗？共 ${imageStore.temp_generated_dynamics.length} 个，此操作不可恢复`)) return
   imageStore.temp_generated_dynamics.length = 0
   api.delete(`/image_clear/${userStore.user_id}/temp_generated_dynamics`)
 }

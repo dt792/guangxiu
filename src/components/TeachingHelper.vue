@@ -247,6 +247,7 @@
 	function resetMaskPreview() {
 		mask_src.value = generateImageWithText(w, h, '按下鼠标左键\n拖动绘制掩膜\n右键取消掩膜', 7)
 		mask_class.value = ""
+		mask_confidence.value = ""
 		maskReady.value = false
 	}
 	// 统一的笔触初始化函数
@@ -642,6 +643,8 @@
 	} from '@/tools'
 	const mask_src = ref(generateImageWithText(w, h, '按下鼠标左键\n拖动绘制掩膜\n右键取消掩膜', 7))
 	const mask_class = ref("")
+	// 针法识别置信度（0~1，来自 AI worker softmax 概率），空串表示未识别
+	const mask_confidence = ref("")
 	// 预览区当前是否为真实掩膜/分割结果（占位提示图时为 false），用于拦截无效的识别请求
 	const maskReady = ref(false)
 
@@ -897,14 +900,23 @@
 			return
 		}
 		mask_class.value = "识别中"
+		mask_confidence.value = ""
 		const payload = {
 			image_data: mask_src.value.split(',')[1], // 移除Base64前缀
 		};
 		api.post('classify', payload)
 			.then(response => {
-				mask_class.value = response.data;
+				// 新格式 {class_name, confidence}；兼容旧格式（纯字符串类别名）
+				if (response.data && typeof response.data === 'object') {
+					mask_class.value = response.data.class_name
+					mask_confidence.value = response.data.confidence != null
+						? (response.data.confidence * 100).toFixed(1) + '%' : ''
+				} else {
+					mask_class.value = response.data
+				}
 			})
 			.catch(error => {
+				mask_class.value = ""
 				console.error('Error:', error);
 			});
 	}
@@ -1200,9 +1212,21 @@ function calculateMaskBoundingBoxFromCanvas() {
 		item.selected = true
 	}
 
-	function to_user_segments() {
-		api.post(`/image/${userStore.user_id}/segmentations/${selected_segment.value.id}`)
-		notyf.success('已成功保存！');
+	async function to_user_segments() {
+		if (!selected_segment.value) {
+			notyf.error('请先从暂存区选择要保存的图片')
+			return
+		}
+		const item = selected_segment.value
+		await api.post(`/image/${userStore.user_id}/segmentations/${item.id}`)
+		// 保存到图库后移出暂存区（本地列表 + 服务端同步）
+		const index = imageStore.temp_segmentations.indexOf(item)
+		if (index > -1) imageStore.temp_segmentations.splice(index, 1)
+		api.delete(`/image/${userStore.user_id}/temp_segmentations/${item.id}`)
+		if (!imageStore.segmentations.some(x => x.id === item.id)) {
+			imageStore.segmentations.unshift(item)
+		}
+		notyf.success('已保存到图库并移出暂存区！');
 	}
 
 	function download_segment() {
@@ -1218,6 +1242,8 @@ function calculateMaskBoundingBoxFromCanvas() {
 	}
 
 	function clear_segmentations() {
+		// 暂存区不会自动清空，手动清空前二次确认防误触
+		if (!window.confirm(`确定清空全部暂存分割图片吗？共 ${imageStore.temp_segmentations.length} 张，此操作不可恢复`)) return
 		imageStore.temp_segmentations.length = 0
 		api.delete(`/image_clear/${userStore.user_id}/temp_segmentations`)
 	}
@@ -1601,6 +1627,8 @@ function calculateMaskBoundingBoxFromCanvas() {
 	}
 	
 	async function toggleStitchMap() {
+	  // 创建中重复点击不提交新任务（按钮同时也会置灰禁用，双保险）
+	  if (stitchMapLoading.value) return
 	  if (stitchMapExpanded.value) {
 	    // 收起针法地图
 	    await resetToOriginalImage()
@@ -1613,50 +1641,48 @@ function calculateMaskBoundingBoxFromCanvas() {
 	    }
 	    stitchMapExpanded.value = true
 	    stitchMapLoading.value = true
-	    stitchMapMessage.value = '正在检查针法地图...'
-	    
+	    stitchMapMessage.value = '正在检查针法地图缓存...'
+
 	    try {
 	      const imageId = userStore.t_selectedImageId
 	      const userId = userStore.user_id
-	      
+
 	      if (!imageId || !userId) {
 	        stitchMapMessage.value = !imageId ? '未找到图片ID' : '未找到用户ID'
 	        stitchMapLoading.value = false
 	        stitchMapExpanded.value = false
 	        return
 	      }
-	      
+
 	      console.log('当前用户ID:', userId)
 	      console.log('当前图片ID:', imageId)
-	      
-	      // 第一步：先尝试直接加载已存在的针法地图
+
+	      // 第一步：先检查缓存，已存在则直接使用
 	      const stitchMapUrl = `${api.defaults.baseURL.replace(/\/$/, '')}/get_segment_map/${imageId}?t=${Date.now()}`
 	      console.log('尝试加载针法地图URL:', stitchMapUrl)
-	      
+
 	      // 使用Image对象预加载测试图片是否存在
 	      const imageExists = await checkImageExists(stitchMapUrl)
-	      
+
 	      if (imageExists) {
-	        // 针法地图已存在，直接显示
-	        console.log('针法地图已存在，直接加载')
-			setTimeout(() => {
-			                display_src.value = stitchMapUrl;
-			}, 2000);      
-	        stitchMapMessage.value = '针法地图加载成功'
+	        // 缓存命中：立即显示，不再人为延迟
+	        console.log('针法地图缓存命中，直接加载')
+	        display_src.value = stitchMapUrl
+	        stitchMapMessage.value = '针法地图加载成功（缓存）'
 	        resetCanvasForStitchMap()
 	      } else {
-	        // 针法地图不存在，需要生成
-	        console.log('针法地图不存在，开始生成...')
-	        stitchMapMessage.value = '正在生成针法地图...'
-	        
+	        // 缓存不存在：进入创建流程（服务端对同图任务去重，创建中则等待）
+	        console.log('针法地图不存在，开始创建...')
+	        stitchMapMessage.value = '针法地图创建中，请稍候...'
+
 	        const stitchMapFound = await checkAndDisplayStitchMap(imageId, userId)
-	        
+
 	        if (!stitchMapFound) {
 	          stitchMapExpanded.value = false
 	          await resetToOriginalImage()
 	        }
 	      }
-	      
+
 	    } catch (error) {
 	      console.error('展开针法地图时出错:', error)
 	      stitchMapMessage.value = '加载针法地图时出错'
@@ -1750,7 +1776,7 @@ function calculateMaskBoundingBoxFromCanvas() {
 						<ul class="right_res_ui">
 							<li style="font-weight: bold;">针法识别结果</li>
 							<li><span>检测到针法：</span><input type="text" class="input" v-model="mask_class" placeholder=" " /></li>
-							<!-- <li><span>置信度：</span></li> -->
+							<li><span>置信度：</span><span class="confidence-value">{{ mask_confidence || '—' }}</span></li>
 						</ul>
 					</div>
 				</div>
@@ -1771,7 +1797,7 @@ function calculateMaskBoundingBoxFromCanvas() {
 										:class="{ active: isBoxActive('image', ii) }"
 										@click="pickBox('image', ii); selected_change(ii['id'],ii['x1'],ii['y1'],ii['x2'],ii['y2'])">
 										<img :src="ii.src" class="gallery-thumb" />
-										<span class="gallery-name">{{ ii.name }}{{ index + 1 }}</span>
+										<span class="gallery-name">{{ ii.name }}{{ index + 1 }}<template v-if="ii.confidence != null"> · {{ (ii.confidence * 100).toFixed(0) }}%</template></span>
 										<button class="btn-show star"
 											:class="{ starred: ii.is_star }"
 											:title="ii.is_star ? '取消收藏' : '收藏'"
@@ -1803,7 +1829,7 @@ function calculateMaskBoundingBoxFromCanvas() {
 											:class="{ active: isBoxActive('user', ii) }"
 											@click="pickBox('user', ii); selected_change(ii['id'],ii['x1'],ii['y1'],ii['x2'],ii['y2'])">
 											<img :src="ii.src" class="gallery-thumb" />
-											<span class="gallery-name">{{ ii.name }}{{ index + 1 }}</span>
+											<span class="gallery-name">{{ ii.name }}{{ index + 1 }}<template v-if="ii.confidence != null"> · {{ (ii.confidence * 100).toFixed(0) }}%</template></span>
 											<button class="btn-show star"
 												:class="{ starred: ii.is_star }"
 												:title="ii.is_star ? '取消收藏' : '收藏'"
@@ -1845,17 +1871,15 @@ function calculateMaskBoundingBoxFromCanvas() {
 						</div>
 					</div>
 					<div style="flex-shrink: 0; margin-top: 10px; text-align: center;">
-						<button 
-						      class="gradient-btn btn text-white" 
+						<button
+						      class="gradient-btn btn text-white"
 						      @click="toggleStitchMap"
 						      :class="{
-						        'btn-active': stitchMapExpanded, 
-						        'loading': stitchMapLoading,
+						        'btn-active': stitchMapExpanded,
 						        'btn-success': stitchMapExpanded && !stitchMapLoading
 						      }"
 						      :disabled="stitchMapLoading">
-						      <span v-if="stitchMapLoading" class="loading loading-spinner loading-sm"></span>
-						      {{ stitchMapLoading ? '处理中...' : (stitchMapExpanded ? '收起针法地图' : '展开针法地图') }}
+						      {{ stitchMapLoading ? '请等待...' : (stitchMapExpanded ? '收起针法地图' : '展开针法地图') }}
 						</button>
 					</div>
 				</div>
@@ -2502,6 +2526,22 @@ function calculateMaskBoundingBoxFromCanvas() {
 	.gradient-btn:hover::after {
 	  left: 100%;
 	}
+
+	/* 针法地图创建中：按钮置灰禁用，配合 loading 旋转表示处理中 */
+	.gradient-btn:disabled {
+	  background: linear-gradient(135deg, #bdbdbd 0%, #a8a8a8 100%);
+	  box-shadow: none;
+	  cursor: not-allowed;
+	  transform: none;
+	  opacity: 0.85;
+	}
+
+	/* 针法识别置信度数值 */
+	.confidence-value {
+	  font-weight: 600;
+	  color: #2e7d32;
+	}
+
 
 	/* ---- 收藏按钮：外部圆形容器 + 浅灰/浅黄底，内含纯星 svg（not_collected2/collected2） ---- */
 	.btn-show.star {

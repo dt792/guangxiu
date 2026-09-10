@@ -43,6 +43,7 @@ function detectionToDict(d) {
   return {
     id: d.id, d_id: d.d_id, is_star: d.is_star, name: d.name,
     x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2, top: d.top, left: d.left,
+    confidence: d.confidence ?? null,
   };
 }
 
