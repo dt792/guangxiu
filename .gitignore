@@ -32,7 +32,10 @@ coverage
 # 系统广绣图库（大图素材，不提交仓库，仅本地开发使用）
 public/guangxiu_imgs/
 
-# 服务端运行时数据：用户上传/生成的图片与临时文件（含 tmp/sys.json）
+# 服务端运行时数据：用户上传/生成的图片视频、账号数据库、业务数据（统一存放于 data/）
+server/data/
+# 旧版分散存储路径（已迁移到 data/，防御性保留）
 server/images/
 server/tmp/
 server/tmp_segment_map/
+server/users.db
