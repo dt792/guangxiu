@@ -135,10 +135,9 @@ function sortByStarAndDate(a, b) {
 }
 
 
-// 系统广绣图库：放置于前端 public/guangxiu_imgs 下的静态图片。
-// 文件名清单不再写死！由构建期插件 (scripts/gen-system-image-index.mjs)
-// 扫描目录自动生成 public/guangxiu_imgs/index.json，前端运行时 fetch。
-// 仅前端静态展示，不托管于后端；选中后才上传至后端 uploads 获得真实 id
+// 系统广绣图库：放置于服务端 server/data/system_images/ 下的图片。
+// 服务启动时自动扫描目录并生成缩略图，前端通过 /system_images 接口获取清单，
+// 不写死数量；选中后才上传至后端 uploads 获得真实 id
 
 // 模块级“加载中”标志，供 load_system_images 去重
 let _sysLoading = null
@@ -155,25 +154,25 @@ export const useImageStore = defineStore('image', () => {
     const temp_generated_statics=ref([])	//生成的静态图像
     const generated_statics=ref([])
 
-    const systemImages=ref([])	//系统广绣图（前端静态，public/guangxiu_imgs）
+    const systemImages=ref([])	//系统广绣图（服务端 data/system_images，启动时自动扫描）
 
-    // 加载系统广绣图库：动态读取目录清单，不硬编码数量
-    // index.json 由构建插件扫描目录自动生成，运行时 fetch 得到文件名数组
+    // 加载系统广绣图库：从服务端接口读取目录清单，不硬编码数量
+    // 服务端启动时自动扫描 data/system_images 并生成缩略图
     async function load_system_images() {
         if (_sysLoading) return _sysLoading           // 防止并发重复请求
         if (systemImages.value.length > 0) return     // 已加载则不重复
         _sysLoading = (async () => {
             try {
-                const res = await fetch('/guangxiu_imgs/index.json')
-                if (!res.ok) throw new Error('HTTP ' + res.status)
-                const files = await res.json()
+                const res = await api.get('/system_images')
+                const files = res.data
+                const baseURL = api.defaults.baseURL.replace(/\/$/, '')
                 systemImages.value = files.map((name) => ({
                     id: 'sys_' + name,               // 前端临时 id，无后端对应
                     name,
-                    // 网格显示缩略小图（.thumbs 由构建插件生成，几十 KB），
+                    // 网格显示缩略小图（服务端 .thumbs 预生成，几十 KB），
                     // 原高清大图仅在真正需要(上传/查看)时经 src 才加载
-                    src: '/guangxiu_imgs/' + encodeURIComponent(name),
-                    thumbnail: '/guangxiu_imgs/.thumbs/' + encodeURIComponent(name) + '.webp',
+                    src: baseURL + '/system_images/src/' + encodeURIComponent(name),
+                    thumbnail: baseURL + '/system_images/thumbnail/' + encodeURIComponent(name),
                     is_system: true
                 }))
             } catch (e) {

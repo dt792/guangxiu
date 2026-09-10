@@ -16,6 +16,7 @@ import authRouter from './routes/auth.js';
 import imagesRouter from './routes/images.js';
 import aiProxyRouter from './routes/aiProxy.js';
 import cloudAiRouter from './routes/cloudAi.js';
+import systemImagesRouter, { scanSystemImages } from './routes/systemImages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.resolve(__dirname, '..', 'dist');
@@ -40,6 +41,7 @@ app.use(authRouter);
 app.use(imagesRouter);
 app.use(aiProxyRouter);
 app.use(cloudAiRouter);
+app.use(systemImagesRouter);
 
 app.get('/worker_status', (req, res) => res.json({ workers: workerCount() }));
 
@@ -99,7 +101,10 @@ wss.on('connection', (ws) => {
   ws.on('error', () => unregisterWorker(ws));
 });
 
-server.listen(config.PORT, config.HOST, () => {
+server.listen(config.PORT, config.HOST, async () => {
   cleanTmpDir(); // 启动时清理 data/tmp 里的残留临时文件
+  // 启动时自动扫描 data/system_images 系统图目录，预生成缩略图
+  const sysFiles = await scanSystemImages();
+  log('server', `系统图库扫描完成: ${sysFiles.length} 张 (data/system_images)`);
   log('server', `listening on http://${config.HOST}:${config.PORT}`);
 });
