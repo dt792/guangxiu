@@ -29,8 +29,12 @@ router.post('/t2i/:user_id/:id', async (req, res, next) => {
   try {
     const { user_id, id } = req.params;
     sysInfo.data.tasks[id] = { id, img_id: '', process: 0, state: '队列中' };
+    // 隐藏的广绣风格强调词：与用户提示词一起提交给大模型，前端不可见。
+    // 强调：留白、白布背景、丝绸反光、布面平整无褶皱
     const hint = '广绣（广东刺绣、粤绣）风格的刺绣艺术品，' + req.body.hint +
-      '，丝线绣制，针脚细密整齐，缎面底布，丝光质感，色彩浓艳饱满，构图丰满，' +
+      '，丝线绣制，针脚细密整齐，色彩浓艳饱满，构图丰满，画面适当留白，' +
+      '背景为干净平整的白色缎面底布，布面光滑无褶皱、无杂物、无阴影，' +
+      '关键部位呈现丝绸反光质感，丝光随针脚走向自然渐变，' +
       '立体感强，刺绣纹理清晰可见，画面充满质感，极具传统广绣艺术特色。';
     log('api', `t2i user=${user_id} task=${id} hint="${short(hint, 60)}"`);
     // lora/cfg/steps belonged to the old ComfyUI workflow; kept for request compatibility
