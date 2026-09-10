@@ -16,8 +16,13 @@ async function load() {
   alert(response.data)
 }
 async function detect() {
-  // 发起请求，明确设置 responseType 为 'arraybuffer'
-  const response = await api.get("detections/update", );
+  // 未选择图片时不发检测请求（t_selectedImageId 默认占位值 "1" 也视为未选择）
+  const id = userStore.t_selectedImageId
+  if (!id || id === "1") {
+    alert('请先选择一张图片')
+    return
+  }
+  const response = await api.get("detections/update/" + id, );
   alert(response.data)
 }
 </script>

@@ -2,9 +2,10 @@
 // Keys come from environment variables (see config.js).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import nodePath from 'node:path';
 
 import config from './config.js';
-import { optimizeImageForApi } from './helpers.js';
+import { optimizeImageForApi, dataPath } from './helpers.js';
 import { log, elapsed } from './logger.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -12,6 +13,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function downloadTo(url, path) {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`download ${resp.status}`);
+  fs.mkdirSync(nodePath.dirname(path), { recursive: true });
   fs.writeFileSync(path, Buffer.from(await resp.arrayBuffer()));
   return path;
 }
@@ -181,7 +183,7 @@ export async function dashscopeT2i(hint, width = 1024, height = 1024) {
   const url = contents.find((c) => c.image)?.image;
   if (!url) throw new Error(`dashscope t2i no result: ${JSON.stringify(data)}`);
   log('cloud', `t2i ← ok ${elapsed(t0)}`);
-  return downloadTo(url, `tmp/${crypto.randomUUID()}.webp`);
+  return downloadTo(url, dataPath('tmp', `${crypto.randomUUID()}.webp`));
 }
 
 // i2v: wan2.7 new protocol, first frame passed as base64 data uri
@@ -204,5 +206,5 @@ export async function dashscopeI2v(imagePath, hint) {
   const url = output.video_url ?? output.results?.[0]?.url;
   if (!url) throw new Error(`dashscope i2v no result: ${JSON.stringify(output)}`);
   log('cloud', `i2v ← ok ${elapsed(t0)}`);
-  return downloadTo(url, `tmp/${crypto.randomUUID()}.mp4`);
+  return downloadTo(url, dataPath('tmp', `${crypto.randomUUID()}.mp4`));
 }

@@ -1,12 +1,12 @@
 // Business data store: JSON persistence (port of flask_backend/DataDefine.py SysInfo).
-// Working directory = webapp/server/ ; data file: tmp/sys.json
+// Data file: data/sys.json（所有本地数据统一放在 server/data/ 下）
 import fs from 'node:fs';
 
-import { saveImageFiles, saveVideoFiles, ensureDirs } from './helpers.js';
+import { saveImageFiles, saveVideoFiles, ensureDirs, dataPath, rmIfTempFile } from './helpers.js';
 
 ensureDirs();
 
-const SYS_PATH = 'tmp/sys.json';
+const SYS_PATH = dataPath('sys.json');
 let counter = 0;
 
 function genId() {
@@ -56,7 +56,7 @@ class Store {
   }
 
   save() {
-    fs.mkdirSync('tmp', { recursive: true });
+    fs.mkdirSync(dataPath(), { recursive: true });
     fs.writeFileSync(SYS_PATH, JSON.stringify(this.data));
   }
 
@@ -77,7 +77,10 @@ class Store {
 
   getUserInfo(userId) {
     const user = this.ensureUser(userId);
-    const pick = (key) => user[key].map((id) => imageInfoToDict(this.data.image_infos[id]));
+    // 跳过 image_infos 中已不存在的 id，避免脏数据导致整接口 500
+    const pick = (key) => user[key]
+      .filter((id) => this.data.image_infos[id])
+      .map((id) => imageInfoToDict(this.data.image_infos[id]));
     return {
       id: user.id,
       name: user.name,
@@ -95,6 +98,7 @@ class Store {
   async createUserImageInfo(userId, imageClass, img) {
     const id = genId();
     const { src, thumbnail } = await saveImageFiles(id, img);
+    rmIfTempFile(img); // 云端下载的 tmp 临时文件入库后即删
     const info = {
       id, src, thumbnail,
       name: id, is_star: true, rating: -1,
@@ -110,6 +114,7 @@ class Store {
   async createUserVideoInfo(userId, imageClass, videoPath) {
     const id = genId();
     const { src, thumbnail } = await saveVideoFiles(id, videoPath);
+    rmIfTempFile(videoPath); // 云端下载的 tmp 临时文件入库后即删
     const info = {
       id, src, thumbnail,
       name: id, is_star: true, rating: -1,

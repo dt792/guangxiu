@@ -9,6 +9,7 @@ import express from 'express';
 import { WebSocketServer } from 'ws';
 
 import config from './config.js';
+import { cleanTmpDir } from './helpers.js';
 import { log, logErr, short } from './logger.js';
 import { registerWorker, unregisterWorker, resolveTask, workerCount } from './workerManager.js';
 import authRouter from './routes/auth.js';
@@ -99,5 +100,6 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(config.PORT, config.HOST, () => {
+  cleanTmpDir(); // 启动时清理 data/tmp 里的残留临时文件
   log('server', `listening on http://${config.HOST}:${config.PORT}`);
 });
